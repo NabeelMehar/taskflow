@@ -99,13 +99,20 @@ export default function DashboardLayout({
                 *,
                 project:projects(*),
                 assignee:users!tasks_assignee_id_fkey(*),
-                reporter:users!tasks_reporter_id_fkey(*)
+                reporter:users!tasks_reporter_id_fkey(*),
+                task_labels(label:labels(*))
               `)
               .in('project_id', projectIds)
               .order('order', { ascending: true })
 
             if (tasks) {
-              setTasks(tasks)
+              // Transform task_labels to labels array
+              const tasksWithLabels = tasks.map((task: any) => ({
+                ...task,
+                labels: task.task_labels?.map((tl: any) => tl.label).filter(Boolean) || [],
+                task_labels: undefined, // Remove the raw junction data
+              }))
+              setTasks(tasksWithLabels)
             }
           }
         }

@@ -1,29 +1,76 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Bell, Shield, Palette, LogOut, Save } from 'lucide-react'
+import { useTheme } from 'next-themes'
+import {
+  User,
+  Bell,
+  Shield,
+  Palette,
+  LogOut,
+  Save,
+  Upload,
+  Trash2,
+  Sun,
+  Moon,
+  Monitor,
+  Loader2,
+  AlertTriangle
+} from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { toast } from '@/components/ui/use-toast'
 import { getInitials } from '@/lib/utils'
 
 export default function SettingsPage() {
   const router = useRouter()
+  const { theme, setTheme } = useTheme()
   const { user, setUser } = useAppStore()
   const supabase = createClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const [loading, setLoading] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [fullName, setFullName] = useState(user?.full_name || '')
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
+  // Notification settings (UI only for now)
+  const [emailNotifications, setEmailNotifications] = useState(true)
+  const [taskAssigned, setTaskAssigned] = useState(true)
+  const [taskComments, setTaskComments] = useState(true)
+  const [dueDateReminders, setDueDateReminders] = useState(true)
 
   const handleUpdateProfile = async () => {
     if (!user) return
-    
+
     setLoading(true)
 
     const { error } = await supabase
@@ -49,10 +96,121 @@ export default function SettingsPage() {
     })
   }
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please upload an image file',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Validate file size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: 'File too large',
+        description: 'Image must be less than 2MB',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setUploadingAvatar(true)
+
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`
+      const filePath = `avatars/${fileName}`
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      // Update user profile
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+
+      if (updateError) throw updateError
+
+      setUser({ ...user, avatar_url: publicUrl })
+      toast({
+        title: 'Avatar updated',
+        description: 'Your profile picture has been updated',
+      })
+    } catch (error: any) {
+      toast({
+        title: 'Upload failed',
+        description: error.message || 'Failed to upload avatar',
+        variant: 'destructive',
+      })
+    } finally {
+      setUploadingAvatar(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') return
+
+    setDeleting(true)
+
+    try {
+      // Delete user data (cascade will handle related data)
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', user?.id)
+
+      if (error) throw error
+
+      // Sign out
+      await supabase.auth.signOut()
+
+      toast({
+        title: 'Account deleted',
+        description: 'Your account has been permanently deleted',
+      })
+
+      router.push('/login')
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete account',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeleting(false)
+      setDeleteModalOpen(false)
+    }
+  }
+
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     router.push('/login')
   }
+
+  const themeOptions = [
+    { value: 'light', label: 'Light', icon: Sun },
+    { value: 'dark', label: 'Dark', icon: Moon },
+    { value: 'system', label: 'System', icon: Monitor },
+  ]
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -83,8 +241,25 @@ export default function SettingsPage() {
               </AvatarFallback>
             </Avatar>
             <div>
-              <Button variant="outline" size="sm">
-                Change Avatar
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+              >
+                {uploadingAvatar ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                {uploadingAvatar ? 'Uploading...' : 'Change Avatar'}
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">
                 JPG, GIF or PNG. Max size 2MB.
@@ -125,24 +300,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Notifications Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
-            <CardTitle>Notifications</CardTitle>
-          </div>
-          <CardDescription>
-            Configure how you receive notifications
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Notification settings coming soon...
-          </p>
-        </CardContent>
-      </Card>
-
       {/* Appearance Section */}
       <Card>
         <CardHeader>
@@ -154,15 +311,109 @@ export default function SettingsPage() {
             Customize the look and feel of the app
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Theme settings coming soon...
-          </p>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <Label>Theme</Label>
+            <div className="grid grid-cols-3 gap-4">
+              {themeOptions.map((option) => {
+                const Icon = option.icon
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => setTheme(option.value)}
+                    className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
+                      theme === option.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-transparent bg-muted/50 hover:bg-muted'
+                    }`}
+                  >
+                    <Icon className="h-6 w-6" />
+                    <span className="text-sm font-medium">{option.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Notifications Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            <CardTitle>Notifications</CardTitle>
+          </div>
+          <CardDescription>
+            Configure how you receive notifications
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Email Notifications</Label>
+              <p className="text-sm text-muted-foreground">
+                Receive email notifications for important updates
+              </p>
+            </div>
+            <Switch
+              checked={emailNotifications}
+              onCheckedChange={setEmailNotifications}
+            />
+          </div>
+
+          <Separator />
+
+          <div className="space-y-4">
+            <Label className="text-muted-foreground">Notify me when:</Label>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Task assigned to me</p>
+                <p className="text-xs text-muted-foreground">
+                  When someone assigns a task to you
+                </p>
+              </div>
+              <Switch
+                checked={taskAssigned}
+                onCheckedChange={setTaskAssigned}
+                disabled={!emailNotifications}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Task comments</p>
+                <p className="text-xs text-muted-foreground">
+                  When someone comments on your task
+                </p>
+              </div>
+              <Switch
+                checked={taskComments}
+                onCheckedChange={setTaskComments}
+                disabled={!emailNotifications}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Due date reminders</p>
+                <p className="text-xs text-muted-foreground">
+                  Remind me before tasks are due
+                </p>
+              </div>
+              <Switch
+                checked={dueDateReminders}
+                onCheckedChange={setDueDateReminders}
+                disabled={!emailNotifications}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       {/* Danger Zone */}
-      <Card className="border-red-200">
+      <Card className="border-red-200 dark:border-red-900">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-red-500" />
@@ -193,12 +444,70 @@ export default function SettingsPage() {
                 Permanently delete your account and all data
               </p>
             </div>
-            <Button variant="destructive">
+            <Button
+              variant="destructive"
+              onClick={() => setDeleteModalOpen(true)}
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
               Delete Account
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      {/* Delete Account Confirmation Dialog */}
+      <AlertDialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              <AlertDialogTitle>Delete Account</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="space-y-4">
+              <p>
+                This action cannot be undone. This will permanently delete your account
+                and remove all your data from our servers, including:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>All your tasks and comments</li>
+                <li>All your projects</li>
+                <li>Your workspace membership</li>
+                <li>Your profile information</li>
+              </ul>
+              <div className="space-y-2">
+                <Label htmlFor="confirmDelete" className="text-foreground">
+                  Type <span className="font-bold">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="confirmDelete"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  className="border-red-200 focus-visible:ring-red-500"
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmText('')}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccount}
+              disabled={deleteConfirmText !== 'DELETE' || deleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              {deleting ? 'Deleting...' : 'Delete Account'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

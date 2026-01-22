@@ -68,6 +68,11 @@ export const useAppStore = create<AppState>((set) => ({
       tasks: state.tasks.map((task) =>
         task.id === updatedTask.id ? updatedTask : task
       ),
+      // Also update selectedTask if it's the same task
+      selectedTask:
+        state.selectedTask?.id === updatedTask.id
+          ? updatedTask
+          : state.selectedTask,
     })),
   removeTask: (taskId) =>
     set((state) => ({

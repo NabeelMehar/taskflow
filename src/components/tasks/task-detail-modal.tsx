@@ -11,10 +11,13 @@ import {
   X,
   Clock,
   Tag,
+  Plus,
+  Check,
+  Loader2,
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
-import { Comment, TaskPriority, TaskStatus } from '@/types'
+import { Comment, TaskPriority, TaskStatus, User as UserType, Label } from '@/types'
 import { TASK_PRIORITIES, TASK_STATUSES } from '@/lib/constants'
 import { cn, formatRelativeDate, getInitials } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -25,7 +28,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Label as FormLabel } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -34,10 +37,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { toast } from '@/components/ui/use-toast'
+
+const LABEL_COLORS = [
+  '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6',
+  '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280',
+]
 
 export function TaskDetailModal() {
   const {
@@ -46,6 +59,7 @@ export function TaskDetailModal() {
     closeTaskModal,
     updateTask,
     user,
+    workspaces,
   } = useAppStore()
 
   const supabase = createClient()
@@ -56,14 +70,44 @@ export function TaskDetailModal() {
   const [editingDescription, setEditingDescription] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [workspaceMembers, setWorkspaceMembers] = useState<UserType[]>([])
+  const [labels, setLabels] = useState<Label[]>([])
+  const [taskLabels, setTaskLabels] = useState<Label[]>([])
+  const [newLabelName, setNewLabelName] = useState('')
+  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[0])
+  const [creatingLabel, setCreatingLabel] = useState(false)
+  const [labelPopoverOpen, setLabelPopoverOpen] = useState(false)
+  const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false)
 
   useEffect(() => {
     if (selectedTask) {
       setTitle(selectedTask.title)
       setDescription(selectedTask.description || '')
       fetchComments()
+      fetchLabels()
+      fetchTaskLabels()
     }
   }, [selectedTask])
+
+  useEffect(() => {
+    if (workspaces.length > 0) {
+      fetchWorkspaceMembers()
+    }
+  }, [workspaces])
+
+  const fetchWorkspaceMembers = async () => {
+    if (!workspaces.length) return
+
+    const { data, error } = await supabase
+      .from('workspace_members')
+      .select('user:users(*)')
+      .eq('workspace_id', workspaces[0].id)
+
+    if (!error && data) {
+      const members = data.map((d: any) => d.user).filter(Boolean) as UserType[]
+      setWorkspaceMembers(members)
+    }
+  }
 
   const fetchComments = async () => {
     if (!selectedTask) return
@@ -79,6 +123,34 @@ export function TaskDetailModal() {
 
     if (!error && data) {
       setComments(data as Comment[])
+    }
+  }
+
+  const fetchLabels = async () => {
+    if (!selectedTask) return
+
+    const { data, error } = await supabase
+      .from('labels')
+      .select('*')
+      .eq('project_id', selectedTask.project_id)
+      .order('name', { ascending: true })
+
+    if (!error && data) {
+      setLabels(data as Label[])
+    }
+  }
+
+  const fetchTaskLabels = async () => {
+    if (!selectedTask) return
+
+    const { data, error } = await supabase
+      .from('task_labels')
+      .select('label:labels(*)')
+      .eq('task_id', selectedTask.id)
+
+    if (!error && data) {
+      const taskLabelsList = data.map((d: any) => d.label).filter(Boolean) as Label[]
+      setTaskLabels(taskLabelsList)
     }
   }
 
@@ -99,7 +171,13 @@ export function TaskDetailModal() {
       return
     }
 
-    updateTask({ ...selectedTask, [field]: value })
+    // Update local state with assignee info if updating assignee
+    if (field === 'assignee_id') {
+      const assignee = workspaceMembers.find(m => m.id === value) || null
+      updateTask({ ...selectedTask, [field]: value, assignee })
+    } else {
+      updateTask({ ...selectedTask, [field]: value })
+    }
   }
 
   const handleSaveTitle = async () => {
@@ -149,6 +227,96 @@ export function TaskDetailModal() {
     setNewComment('')
   }
 
+  const handleCreateLabel = async () => {
+    if (!newLabelName.trim() || !selectedTask) return
+
+    setCreatingLabel(true)
+
+    const { data, error } = await supabase
+      .from('labels')
+      .insert({
+        name: newLabelName.trim(),
+        color: newLabelColor,
+        project_id: selectedTask.project_id,
+      })
+      .select()
+      .single()
+
+    setCreatingLabel(false)
+
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to create label',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setLabels([...labels, data as Label])
+    setNewLabelName('')
+    toast({
+      title: 'Label created',
+      description: 'The label has been created successfully',
+    })
+  }
+
+  const handleToggleLabel = async (label: Label) => {
+    if (!selectedTask) return
+
+    const isAttached = taskLabels.some(l => l.id === label.id)
+
+    if (isAttached) {
+      // Remove label
+      const { error } = await supabase
+        .from('task_labels')
+        .delete()
+        .eq('task_id', selectedTask.id)
+        .eq('label_id', label.id)
+
+      if (error) {
+        toast({
+          title: 'Error',
+          description: 'Failed to remove label',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const newLabels = taskLabels.filter(l => l.id !== label.id)
+      setTaskLabels(newLabels)
+      // Update task in store so card updates too
+      updateTask({ ...selectedTask, labels: newLabels })
+    } else {
+      // Add label
+      const { error } = await supabase
+        .from('task_labels')
+        .insert({
+          task_id: selectedTask.id,
+          label_id: label.id,
+        })
+
+      if (error) {
+        toast({
+          title: 'Error',
+          description: 'Failed to add label',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const newLabels = [...taskLabels, label]
+      setTaskLabels(newLabels)
+      // Update task in store so card updates too
+      updateTask({ ...selectedTask, labels: newLabels })
+    }
+  }
+
+  const handleAssigneeChange = async (memberId: string | null) => {
+    await handleUpdateField('assignee_id', memberId)
+    setAssigneePopoverOpen(false)
+  }
+
   if (!selectedTask) return null
 
   return (
@@ -160,7 +328,7 @@ export function TaskDetailModal() {
               {selectedTask.project?.key}-{selectedTask.id.slice(0, 4).toUpperCase()}
             </span>
           </div>
-          
+
           {editingTitle ? (
             <Input
               value={title}
@@ -178,6 +346,22 @@ export function TaskDetailModal() {
               {selectedTask.title}
             </DialogTitle>
           )}
+
+          {/* Labels */}
+          {taskLabels.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {taskLabels.map((label) => (
+                <Badge
+                  key={label.id}
+                  variant="secondary"
+                  className="text-xs"
+                  style={{ backgroundColor: `${label.color}20`, color: label.color }}
+                >
+                  {label.name}
+                </Badge>
+              ))}
+            </div>
+          )}
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto">
@@ -186,9 +370,9 @@ export function TaskDetailModal() {
             <div className="col-span-2 space-y-6">
               {/* Description */}
               <div>
-                <Label className="text-sm font-medium text-muted-foreground mb-2 block">
+                <FormLabel className="text-sm font-medium text-muted-foreground mb-2 block">
                   Description
-                </Label>
+                </FormLabel>
                 {editingDescription ? (
                   <div className="space-y-2">
                     <Textarea
@@ -232,10 +416,10 @@ export function TaskDetailModal() {
 
               {/* Comments */}
               <div>
-                <Label className="text-sm font-medium text-muted-foreground mb-4 block flex items-center gap-2">
+                <FormLabel className="text-sm font-medium text-muted-foreground mb-4 block flex items-center gap-2">
                   <MessageSquare className="h-4 w-4" />
                   Comments ({comments.length})
-                </Label>
+                </FormLabel>
 
                 <div className="space-y-4">
                   {comments.map((comment) => (
@@ -292,9 +476,9 @@ export function TaskDetailModal() {
             <div className="space-y-4">
               {/* Status */}
               <div>
-                <Label className="text-xs font-medium text-muted-foreground mb-2 block">
+                <FormLabel className="text-xs font-medium text-muted-foreground mb-2 block">
                   Status
-                </Label>
+                </FormLabel>
                 <Select
                   value={selectedTask.status}
                   onValueChange={(value) => handleUpdateField('status', value)}
@@ -320,9 +504,9 @@ export function TaskDetailModal() {
 
               {/* Priority */}
               <div>
-                <Label className="text-xs font-medium text-muted-foreground mb-2 block">
+                <FormLabel className="text-xs font-medium text-muted-foreground mb-2 block">
                   Priority
-                </Label>
+                </FormLabel>
                 <Select
                   value={selectedTask.priority}
                   onValueChange={(value) => handleUpdateField('priority', value)}
@@ -348,32 +532,158 @@ export function TaskDetailModal() {
 
               {/* Assignee */}
               <div>
-                <Label className="text-xs font-medium text-muted-foreground mb-2 block">
+                <FormLabel className="text-xs font-medium text-muted-foreground mb-2 block">
                   Assignee
-                </Label>
-                {selectedTask.assignee ? (
-                  <div className="flex items-center gap-2 p-2 rounded-md border">
-                    <Avatar className="h-6 w-6">
-                      <AvatarImage src={selectedTask.assignee.avatar_url || ''} />
-                      <AvatarFallback className="text-xs">
-                        {getInitials(selectedTask.assignee.full_name || 'U')}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm">{selectedTask.assignee.full_name}</span>
-                  </div>
-                ) : (
-                  <Button variant="outline" size="sm" className="w-full justify-start">
-                    <User className="h-4 w-4 mr-2" />
-                    Assign
-                  </Button>
-                )}
+                </FormLabel>
+                <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    {selectedTask.assignee ? (
+                      <div className="flex items-center gap-2 p-2 rounded-md border cursor-pointer hover:bg-muted/50">
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage src={selectedTask.assignee.avatar_url || ''} />
+                          <AvatarFallback className="text-xs">
+                            {getInitials(selectedTask.assignee.full_name || 'U')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm">{selectedTask.assignee.full_name}</span>
+                      </div>
+                    ) : (
+                      <Button variant="outline" size="sm" className="w-full justify-start">
+                        <User className="h-4 w-4 mr-2" />
+                        Assign
+                      </Button>
+                    )}
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2" align="start">
+                    <div className="space-y-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-muted-foreground"
+                        onClick={() => handleAssigneeChange(null)}
+                      >
+                        <User className="h-4 w-4 mr-2" />
+                        Unassigned
+                      </Button>
+                      <Separator className="my-2" />
+                      {workspaceMembers.map((member) => (
+                        <Button
+                          key={member.id}
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => handleAssigneeChange(member.id)}
+                        >
+                          <Avatar className="h-5 w-5 mr-2">
+                            <AvatarImage src={member.avatar_url || ''} />
+                            <AvatarFallback className="text-xs">
+                              {getInitials(member.full_name || 'U')}
+                            </AvatarFallback>
+                          </Avatar>
+                          {member.full_name || member.email}
+                          {selectedTask.assignee_id === member.id && (
+                            <Check className="h-4 w-4 ml-auto" />
+                          )}
+                        </Button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Labels */}
+              <div>
+                <FormLabel className="text-xs font-medium text-muted-foreground mb-2 block">
+                  Labels
+                </FormLabel>
+                <Popover open={labelPopoverOpen} onOpenChange={setLabelPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="w-full justify-start">
+                      <Tag className="h-4 w-4 mr-2" />
+                      {taskLabels.length > 0 ? `${taskLabels.length} labels` : 'Add labels'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-3" align="start">
+                    <div className="space-y-3">
+                      <div className="font-medium text-sm">Labels</div>
+
+                      {/* Existing Labels */}
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {labels.map((label) => {
+                          const isSelected = taskLabels.some(l => l.id === label.id)
+                          return (
+                            <button
+                              key={label.id}
+                              onClick={() => handleToggleLabel(label)}
+                              className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 text-left"
+                            >
+                              <div
+                                className="h-3 w-3 rounded-full"
+                                style={{ backgroundColor: label.color }}
+                              />
+                              <span className="flex-1 text-sm">{label.name}</span>
+                              {isSelected && <Check className="h-4 w-4 text-primary" />}
+                            </button>
+                          )
+                        })}
+                        {labels.length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-2">
+                            No labels yet
+                          </p>
+                        )}
+                      </div>
+
+                      <Separator />
+
+                      {/* Create New Label */}
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          Create new label
+                        </div>
+                        <Input
+                          placeholder="Label name"
+                          value={newLabelName}
+                          onChange={(e) => setNewLabelName(e.target.value)}
+                          className="h-8"
+                        />
+                        <div className="flex gap-1.5">
+                          {LABEL_COLORS.map((color) => (
+                            <button
+                              key={color}
+                              onClick={() => setNewLabelColor(color)}
+                              className={`h-5 w-5 rounded-full transition-all ${
+                                newLabelColor === color
+                                  ? 'ring-2 ring-offset-1 ring-primary'
+                                  : ''
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={handleCreateLabel}
+                          disabled={!newLabelName.trim() || creatingLabel}
+                        >
+                          {creatingLabel ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <Plus className="h-4 w-4 mr-2" />
+                          )}
+                          Create Label
+                        </Button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {/* Due Date */}
               <div>
-                <Label className="text-xs font-medium text-muted-foreground mb-2 block">
+                <FormLabel className="text-xs font-medium text-muted-foreground mb-2 block">
                   Due Date
-                </Label>
+                </FormLabel>
                 <Input
                   type="date"
                   value={selectedTask.due_date?.split('T')[0] || ''}

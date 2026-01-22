@@ -113,15 +113,6 @@ export function AuthForm({ mode }: AuthFormProps) {
       <div className="grid gap-3">
         <Button
           variant="outline"
-          onClick={() => handleOAuthSignIn('github')}
-          disabled={loading}
-          className="w-full"
-        >
-          <Github className="mr-2 h-4 w-4" />
-          Continue with GitHub
-        </Button>
-        <Button
-          variant="outline"
           onClick={() => handleOAuthSignIn('google')}
           disabled={loading}
           className="w-full"

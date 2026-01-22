@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, FolderKanban, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Plus, FolderKanban, MoreHorizontal, Pencil, Trash2, Loader2, Users } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -22,26 +22,78 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { toast } from '@/components/ui/use-toast'
 import { PROJECT_COLORS, DEFAULT_PROJECT_COLOR } from '@/lib/constants'
-import { generateProjectKey } from '@/lib/utils'
-import { Project } from '@/types'
+import { generateProjectKey, getInitials } from '@/lib/utils'
+import { Project, User } from '@/types'
 
 export default function ProjectsPage() {
   const { projects, tasks, workspaces, setProjects, user } = useAppStore()
   const supabase = createClient()
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(false)
+  const [workspaceMembers, setWorkspaceMembers] = useState<User[]>([])
+
   const [formData, setFormData] = useState({
     name: '',
     key: '',
     description: '',
     color: DEFAULT_PROJECT_COLOR,
+    lead_id: '',
   })
+
+  useEffect(() => {
+    fetchWorkspaceMembers()
+  }, [workspaces])
+
+  const fetchWorkspaceMembers = async () => {
+    if (!workspaces.length) return
+
+    const { data, error } = await supabase
+      .from('workspace_members')
+      .select('user:users(*)')
+      .eq('workspace_id', workspaces[0].id)
+
+    if (!error && data) {
+      const members = data.map((d: any) => d.user).filter(Boolean) as User[]
+      setWorkspaceMembers(members)
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      key: '',
+      description: '',
+      color: DEFAULT_PROJECT_COLOR,
+      lead_id: user?.id || '',
+    })
+  }
 
   const handleNameChange = (name: string) => {
     setFormData({
@@ -51,9 +103,21 @@ export default function ProjectsPage() {
     })
   }
 
+  const handleOpenEditModal = (project: Project) => {
+    setSelectedProject(project)
+    setFormData({
+      name: project.name,
+      key: project.key,
+      description: project.description || '',
+      color: project.color,
+      lead_id: project.lead_id || '',
+    })
+    setEditModalOpen(true)
+  }
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!formData.name.trim() || !formData.key.trim()) {
       toast({
         title: 'Error',
@@ -82,7 +146,7 @@ export default function ProjectsPage() {
         description: formData.description.trim() || null,
         color: formData.color,
         workspace_id: workspaces[0].id,
-        lead_id: user?.id,
+        lead_id: formData.lead_id || user?.id,
       })
       .select()
       .single()
@@ -104,19 +168,80 @@ export default function ProjectsPage() {
       description: 'Your project has been created successfully',
     })
     setCreateModalOpen(false)
-    setFormData({
-      name: '',
-      key: '',
-      description: '',
-      color: DEFAULT_PROJECT_COLOR,
-    })
+    resetForm()
   }
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!selectedProject) return
+
+    if (!formData.name.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Project name is required',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setLoading(true)
+
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        name: formData.name.trim(),
+        description: formData.description.trim() || null,
+        color: formData.color,
+        lead_id: formData.lead_id || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', selectedProject.id)
+
+    setLoading(false)
+
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update project',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setProjects(
+      projects.map((p) =>
+        p.id === selectedProject.id
+          ? {
+              ...p,
+              name: formData.name.trim(),
+              description: formData.description.trim() || null,
+              color: formData.color,
+              lead_id: formData.lead_id || null,
+            }
+          : p
+      )
+    )
+    toast({
+      title: 'Project updated',
+      description: 'The project has been updated successfully',
+    })
+    setEditModalOpen(false)
+    setSelectedProject(null)
+    resetForm()
+  }
+
+  const handleDeleteProject = async () => {
+    if (!selectedProject) return
+
+    setLoading(true)
+
     const { error } = await supabase
       .from('projects')
       .delete()
-      .eq('id', projectId)
+      .eq('id', selectedProject.id)
+
+    setLoading(false)
 
     if (error) {
       toast({
@@ -127,12 +252,112 @@ export default function ProjectsPage() {
       return
     }
 
-    setProjects(projects.filter(p => p.id !== projectId))
+    setProjects(projects.filter(p => p.id !== selectedProject.id))
     toast({
       title: 'Project deleted',
       description: 'The project has been deleted',
     })
+    setDeleteDialogOpen(false)
+    setSelectedProject(null)
   }
+
+  const openDeleteDialog = (project: Project) => {
+    setSelectedProject(project)
+    setDeleteDialogOpen(true)
+  }
+
+  const ProjectFormContent = ({ isEdit = false }: { isEdit?: boolean }) => (
+    <div className="grid gap-4 py-4">
+      <div className="grid gap-2">
+        <Label htmlFor={isEdit ? 'edit-name' : 'name'}>Project Name *</Label>
+        <Input
+          id={isEdit ? 'edit-name' : 'name'}
+          placeholder="e.g., Marketing Campaign"
+          value={formData.name}
+          onChange={(e) =>
+            isEdit
+              ? setFormData({ ...formData, name: e.target.value })
+              : handleNameChange(e.target.value)
+          }
+        />
+      </div>
+      {!isEdit && (
+        <div className="grid gap-2">
+          <Label htmlFor="key">Project Key *</Label>
+          <Input
+            id="key"
+            placeholder="e.g., MKT"
+            value={formData.key}
+            onChange={(e) =>
+              setFormData({ ...formData, key: e.target.value.toUpperCase() })
+            }
+            maxLength={6}
+          />
+          <p className="text-xs text-muted-foreground">
+            A short identifier for tasks (e.g., MKT-123)
+          </p>
+        </div>
+      )}
+      <div className="grid gap-2">
+        <Label htmlFor={isEdit ? 'edit-description' : 'description'}>
+          Description
+        </Label>
+        <Textarea
+          id={isEdit ? 'edit-description' : 'description'}
+          placeholder="What is this project about?"
+          value={formData.description}
+          onChange={(e) =>
+            setFormData({ ...formData, description: e.target.value })
+          }
+          rows={3}
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label>Project Lead</Label>
+        <Select
+          value={formData.lead_id}
+          onValueChange={(value) => setFormData({ ...formData, lead_id: value })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a project lead" />
+          </SelectTrigger>
+          <SelectContent>
+            {workspaceMembers.map((member) => (
+              <SelectItem key={member.id} value={member.id}>
+                <div className="flex items-center gap-2">
+                  <Avatar className="h-5 w-5">
+                    <AvatarImage src={member.avatar_url || ''} />
+                    <AvatarFallback className="text-xs">
+                      {getInitials(member.full_name || 'U')}
+                    </AvatarFallback>
+                  </Avatar>
+                  {member.full_name || member.email}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <Label>Color</Label>
+        <div className="flex gap-2">
+          {PROJECT_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={`h-8 w-8 rounded-full transition-all ${
+                formData.color === color
+                  ? 'ring-2 ring-offset-2 ring-primary'
+                  : ''
+              }`}
+              style={{ backgroundColor: color }}
+              onClick={() => setFormData({ ...formData, color })}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 
   return (
     <div className="space-y-6">
@@ -173,6 +398,7 @@ export default function ProjectsPage() {
             const progress = projectTasks.length > 0
               ? Math.round((completedCount / projectTasks.length) * 100)
               : 0
+            const lead = workspaceMembers.find(m => m.id === project.lead_id)
 
             return (
               <Card key={project.id} className="group relative overflow-hidden">
@@ -207,14 +433,14 @@ export default function ProjectsPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenEditModal(project)}>
                           <Pencil className="mr-2 h-4 w-4" />
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="text-red-600"
-                          onClick={() => handleDeleteProject(project.id)}
+                          onClick={() => openDeleteDialog(project)}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Delete
@@ -229,6 +455,17 @@ export default function ProjectsPage() {
                       {project.description}
                     </p>
                   )}
+                  {lead && (
+                    <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Avatar className="h-5 w-5">
+                        <AvatarImage src={lead.avatar_url || ''} />
+                        <AvatarFallback className="text-xs">
+                          {getInitials(lead.full_name || 'U')}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span>{lead.full_name || lead.email}</span>
+                    </div>
+                  )}
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{projectTasks.length} tasks</span>
@@ -237,7 +474,7 @@ export default function ProjectsPage() {
                     <div className="h-2 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full transition-all"
-                        style={{ 
+                        style={{
                           width: `${progress}%`,
                           backgroundColor: project.color,
                         }}
@@ -266,67 +503,82 @@ export default function ProjectsPage() {
                 Add a new project to organize your tasks
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Project Name *</Label>
-                <Input
-                  id="name"
-                  placeholder="e.g., Marketing Campaign"
-                  value={formData.name}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="key">Project Key *</Label>
-                <Input
-                  id="key"
-                  placeholder="e.g., MKT"
-                  value={formData.key}
-                  onChange={(e) => setFormData({ ...formData, key: e.target.value.toUpperCase() })}
-                  maxLength={6}
-                />
-                <p className="text-xs text-muted-foreground">
-                  A short identifier for tasks (e.g., MKT-123)
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="What is this project about?"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Color</Label>
-                <div className="flex gap-2">
-                  {PROJECT_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      className={`h-8 w-8 rounded-full transition-all ${
-                        formData.color === color ? 'ring-2 ring-offset-2 ring-primary' : ''
-                      }`}
-                      style={{ backgroundColor: color }}
-                      onClick={() => setFormData({ ...formData, color })}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
+            <ProjectFormContent />
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCreateModalOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCreateModalOpen(false)
+                  resetForm()
+                }}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {loading ? 'Creating...' : 'Create Project'}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Project Modal */}
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent>
+          <form onSubmit={handleUpdateProject}>
+            <DialogHeader>
+              <DialogTitle>Edit Project</DialogTitle>
+              <DialogDescription>
+                Update the project details
+              </DialogDescription>
+            </DialogHeader>
+            <ProjectFormContent isEdit />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditModalOpen(false)
+                  setSelectedProject(null)
+                  resetForm()
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {loading ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Project</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{selectedProject?.name}&quot;? This action
+              cannot be undone. All tasks within this project will also be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteProject}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={loading}
+            >
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
