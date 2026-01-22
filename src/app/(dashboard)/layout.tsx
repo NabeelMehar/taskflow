@@ -74,7 +74,7 @@ export default function DashboardLayout({
           setProjects(projects)
 
           // Load tasks for all projects
-          const projectIds = projects.map(p => p.id)
+          const projectIds = projects.map((p: { id: string }) => p.id)
           if (projectIds.length > 0) {
             const { data: tasks } = await supabase
               .from('tasks')
@@ -101,7 +101,7 @@ export default function DashboardLayout({
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (event: string, session: unknown) => {
         if (event === 'SIGNED_OUT') {
           router.push('/login')
         }
