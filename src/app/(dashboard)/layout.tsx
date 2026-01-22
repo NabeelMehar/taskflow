@@ -55,10 +55,27 @@ export default function DashboardLayout({
       setUser(profile)
 
       // Load workspaces
-      const { data: workspaces } = await supabase
+      let { data: workspaces } = await supabase
         .from('workspaces')
         .select('*')
         .order('created_at', { ascending: false })
+
+      // Auto-create default workspace for new users
+      if (!workspaces || workspaces.length === 0) {
+        const { data: newWorkspace, error: wsError } = await supabase
+          .from('workspaces')
+          .insert({
+            name: 'My Workspace',
+            slug: `workspace-${user.id.slice(0, 8)}`,
+            owner_id: user.id,
+          })
+          .select()
+          .single()
+
+        if (newWorkspace && !wsError) {
+          workspaces = [newWorkspace]
+        }
+      }
 
       if (workspaces && workspaces.length > 0) {
         setWorkspaces(workspaces)
