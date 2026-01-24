@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:safe": "npm test && next dev",
-    "build": "npm test && next build",
+    "build": "NODE_ENV=test npm test && next build",
     "build:skip-tests": "next build",
     "start": "next start",
     "lint": "next lint",
