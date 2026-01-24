@@ -28,6 +28,7 @@ const mockWorkspace: Workspace = {
   id: 'workspace-1',
   name: 'Test Workspace',
   slug: 'test-workspace',
+  description: null,
   owner_id: 'user-1',
   created_at: '2024-01-01T00:00:00.000Z',
   updated_at: '2024-01-01T00:00:00.000Z',
@@ -40,6 +41,7 @@ const mockProject: Project = {
   description: 'Test description',
   color: '#3b82f6',
   workspace_id: 'workspace-1',
+  lead_id: null,
   created_at: '2024-01-01T00:00:00.000Z',
   updated_at: '2024-01-01T00:00:00.000Z',
 }
@@ -53,6 +55,7 @@ const mockTask: Task = {
   project_id: 'project-1',
   assignee_id: 'user-1',
   reporter_id: 'user-1',
+  parent_id: null,
   due_date: null,
   order: 0,
   created_at: '2024-01-01T00:00:00.000Z',
