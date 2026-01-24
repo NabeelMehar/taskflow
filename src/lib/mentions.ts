@@ -42,7 +42,7 @@ export function parseMentions(text: string): MentionMatch[] {
 export function extractMentionedUsernames(text: string): string[] {
   const mentions = parseMentions(text)
   const usernames = mentions.map((m) => m.username.toLowerCase())
-  return [...new Set(usernames)]
+  return Array.from(new Set(usernames))
 }
 
 /**
