@@ -80,7 +80,7 @@ export default function ForgotPasswordPage() {
           </div>
 
           <p className="text-center text-sm text-muted-foreground">
-            Didn't receive the email?{' '}
+            Didn&apos;t receive the email?{' '}
             <button
               onClick={() => setSent(false)}
               className="text-primary hover:underline"
