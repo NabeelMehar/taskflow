@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import { Bell, LogOut, User, Settings, Moon, Sun, Search, Command } from 'lucide-react'
+import { LogOut, User, Settings, Moon, Sun, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAppStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
 import { getInitials } from '@/lib/utils'
+import { NotificationDropdown } from '@/components/notifications'
 
 export function Header() {
   const router = useRouter()
@@ -72,12 +73,9 @@ export function Header() {
           {/* Notifications */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
-                  3
-                </span>
-              </Button>
+              <div>
+                <NotificationDropdown />
+              </div>
             </TooltipTrigger>
             <TooltipContent>Notifications</TooltipContent>
           </Tooltip>

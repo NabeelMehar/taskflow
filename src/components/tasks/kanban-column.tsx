@@ -10,7 +10,6 @@ import { Task, TaskStatus } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { TaskCard } from './task-card'
-import { useRef, useEffect } from 'react'
 
 interface KanbanColumnProps {
   id: TaskStatus
@@ -31,38 +30,10 @@ export function KanbanColumn({
   onEditTask,
   onDeleteTask,
 }: KanbanColumnProps) {
-  const { setNodeRef, isOver, active } = useDroppable({ id })
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll when dragging near edges
-  useEffect(() => {
-    if (!active || !scrollRef.current || !isOver) return
-
-    const scrollContainer = scrollRef.current
-    const scrollSpeed = 10
-    const scrollThreshold = 50
-
-    const handleAutoScroll = (e: PointerEvent) => {
-      const rect = scrollContainer.getBoundingClientRect()
-      const y = e.clientY
-
-      // Scroll up when near top
-      if (y < rect.top + scrollThreshold && scrollContainer.scrollTop > 0) {
-        scrollContainer.scrollTop -= scrollSpeed
-      }
-      // Scroll down when near bottom
-      else if (y > rect.bottom - scrollThreshold &&
-               scrollContainer.scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
-        scrollContainer.scrollTop += scrollSpeed
-      }
-    }
-
-    window.addEventListener('pointermove', handleAutoScroll)
-    return () => window.removeEventListener('pointermove', handleAutoScroll)
-  }, [active, isOver])
+  const { setNodeRef, isOver } = useDroppable({ id })
 
   return (
-    <div className="flex h-full w-72 flex-shrink-0 flex-col rounded-lg bg-muted/50">
+    <div className="flex flex-1 min-w-[280px] flex-col rounded-lg bg-muted/50">
       {/* Column Header */}
       <div className="flex items-center justify-between p-3 border-b border-border/50">
         <div className="flex items-center gap-2">
@@ -85,18 +56,13 @@ export function KanbanColumn({
         </Button>
       </div>
 
-      {/* Scrollable Tasks Container */}
+      {/* Tasks Container */}
       <div
-        ref={(node) => {
-          setNodeRef(node)
-          // @ts-ignore
-          scrollRef.current = node
-        }}
+        ref={setNodeRef}
         className={cn(
-          'flex-1 overflow-y-auto p-2 transition-colors',
+          'p-2 transition-colors',
           isOver && 'bg-primary/5'
         )}
-        style={{ minHeight: '100px' }}
       >
         <SortableContext
           items={tasks.map(t => t.id)}

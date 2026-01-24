@@ -8,6 +8,7 @@ import { CreateTaskModal } from '@/components/tasks/create-task-modal'
 import { TaskDetailModal } from '@/components/tasks/task-detail-modal'
 import { useAppStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
+import { fetchNotifications, fetchNotificationSettings } from '@/lib/notifications'
 import { Loader2 } from 'lucide-react'
 
 export default function DashboardLayout({
@@ -17,7 +18,16 @@ export default function DashboardLayout({
 }) {
   const router = useRouter()
   const supabase = createClient()
-  const { setUser, setWorkspaces, setProjects, setTasks, sidebarOpen } = useAppStore()
+  const {
+    setUser,
+    setWorkspaces,
+    setProjects,
+    setTasks,
+    setTeamMembers,
+    setNotifications,
+    setNotificationSettings,
+    sidebarOpen,
+  } = useAppStore()
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -80,6 +90,25 @@ export default function DashboardLayout({
       if (workspaces && workspaces.length > 0) {
         setWorkspaces(workspaces)
 
+        // Load team members for first workspace
+        const { data: membersData } = await supabase
+          .from('workspace_members')
+          .select('user:users(*)')
+          .eq('workspace_id', workspaces[0].id)
+
+        if (membersData) {
+          const members = membersData.map((m: any) => m.user).filter(Boolean)
+          setTeamMembers(members)
+        }
+
+        // Load notifications
+        const notifications = await fetchNotifications(supabase, user.id)
+        setNotifications(notifications)
+
+        // Load notification settings
+        const notificationSettings = await fetchNotificationSettings(supabase, user.id)
+        setNotificationSettings(notificationSettings)
+
         // Load projects for first workspace
         const { data: projects } = await supabase
           .from('projects')
@@ -135,7 +164,7 @@ export default function DashboardLayout({
     return () => {
       subscription.unsubscribe()
     }
-  }, [supabase, router, setUser, setWorkspaces, setProjects, setTasks])
+  }, [supabase, router, setUser, setWorkspaces, setProjects, setTasks, setTeamMembers, setNotifications, setNotificationSettings])
 
   if (loading) {
     return (

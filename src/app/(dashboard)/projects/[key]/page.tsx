@@ -261,7 +261,7 @@ export default function ProjectPage() {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-auto">
           {viewMode === 'board' ? (
             <KanbanBoard projectId={currentProject.id} />
           ) : (

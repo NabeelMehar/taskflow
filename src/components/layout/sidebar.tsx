@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/lib/store'
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Projects', href: '/projects', icon: FolderKanban },
   { name: 'My Tasks', href: '/tasks', icon: CheckSquare },
+  { name: 'Team', href: '/team', icon: Users },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 

@@ -86,6 +86,91 @@ export interface Comment {
   updated_at: string
   // Joined fields
   author?: User
+  mentions?: CommentMention[]
+}
+
+// Team Invitation
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'expired'
+export type InvitationRole = 'admin' | 'member'
+
+export interface TeamInvitation {
+  id: string
+  workspace_id: string
+  email: string
+  role: InvitationRole
+  invited_by: string
+  token: string
+  status: InvitationStatus
+  expires_at: string
+  created_at: string
+  updated_at: string
+  // Joined fields
+  inviter?: User
+  workspace?: Workspace
+}
+
+// Comment Mention
+export interface CommentMention {
+  id: string
+  comment_id: string
+  user_id: string
+  created_at: string
+  // Joined fields
+  user?: User
+}
+
+// Notification
+export type NotificationType =
+  | 'task_assigned'
+  | 'mentioned_in_comment'
+  | 'comment_on_task'
+  | 'team_invitation'
+  | 'invitation_accepted'
+
+export interface Notification {
+  id: string
+  user_id: string
+  type: NotificationType
+  title: string
+  message: string | null
+  read: boolean
+  entity_type: 'task' | 'comment' | 'invitation' | 'workspace' | null
+  entity_id: string | null
+  metadata: Record<string, any>
+  created_at: string
+  updated_at: string
+}
+
+// User Notification Settings
+export interface UserNotificationSettings {
+  id: string
+  user_id: string
+  email_enabled: boolean
+  task_assigned: boolean
+  mentioned_in_comment: boolean
+  comment_on_task: boolean
+  team_invitation: boolean
+  due_date_reminders: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Create Notification Input
+export interface CreateNotificationInput {
+  user_id: string
+  type: NotificationType
+  title: string
+  message?: string
+  entity_type?: 'task' | 'comment' | 'invitation' | 'workspace'
+  entity_id?: string
+  metadata?: Record<string, any>
+}
+
+// Create Invitation Input
+export interface CreateInvitationInput {
+  workspace_id: string
+  email: string
+  role?: InvitationRole
 }
 
 export interface Activity {

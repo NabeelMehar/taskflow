@@ -20,6 +20,9 @@ import { createClient } from '@/lib/supabase/client'
 import { Comment, TaskPriority, TaskStatus, User as UserType, Label } from '@/types'
 import { TASK_PRIORITIES, TASK_STATUSES } from '@/lib/constants'
 import { cn, formatRelativeDate, getInitials } from '@/lib/utils'
+import { getMentionedUsers } from '@/lib/mentions'
+import { notifyMentionedInComment, notifyCommentOnTask, notifyTaskAssigned } from '@/lib/notifications'
+import { MentionInput, MentionText } from '@/components/comments'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -175,6 +178,17 @@ export function TaskDetailModal() {
     if (field === 'assignee_id') {
       const assignee = workspaceMembers.find(m => m.id === value) || null
       updateTask({ ...selectedTask, [field]: value, assignee })
+
+      // Notify the new assignee (if not self)
+      if (value && value !== user?.id) {
+        await notifyTaskAssigned(
+          supabase,
+          value,
+          selectedTask.id,
+          selectedTask.title,
+          user?.full_name || user?.email || 'Someone'
+        )
+      }
     } else {
       updateTask({ ...selectedTask, [field]: value })
     }
@@ -212,9 +226,8 @@ export function TaskDetailModal() {
       `)
       .single()
 
-    setLoadingComment(false)
-
     if (error) {
+      setLoadingComment(false)
       toast({
         title: 'Error',
         description: 'Failed to add comment',
@@ -223,6 +236,44 @@ export function TaskDetailModal() {
       return
     }
 
+    // Handle @mentions
+    const mentionedUsers = getMentionedUsers(newComment, workspaceMembers)
+    for (const mentionedUser of mentionedUsers) {
+      // Don't notify self
+      if (mentionedUser.id === user.id) continue
+
+      // Store mention in database
+      await supabase.from('comment_mentions').insert({
+        comment_id: data.id,
+        user_id: mentionedUser.id,
+      })
+
+      // Create notification for mentioned user
+      await notifyMentionedInComment(
+        supabase,
+        mentionedUser.id,
+        data.id,
+        selectedTask.id,
+        user.full_name || user.email
+      )
+    }
+
+    // Notify task reporter/assignee about new comment (if not the commenter)
+    if (selectedTask.reporter_id && selectedTask.reporter_id !== user.id) {
+      // Check if reporter wasn't already mentioned
+      const reporterWasMentioned = mentionedUsers.some(u => u.id === selectedTask.reporter_id)
+      if (!reporterWasMentioned) {
+        await notifyCommentOnTask(
+          supabase,
+          selectedTask.reporter_id,
+          selectedTask.id,
+          selectedTask.title,
+          user.full_name || user.email
+        )
+      }
+    }
+
+    setLoadingComment(false)
     setComments([...comments, data as Comment])
     setNewComment('')
   }
@@ -439,7 +490,7 @@ export function TaskDetailModal() {
                             {formatRelativeDate(comment.created_at)}
                           </span>
                         </div>
-                        <p className="text-sm">{comment.content}</p>
+                        <MentionText text={comment.content} className="text-sm" />
                       </div>
                     </div>
                   ))}
@@ -453,10 +504,11 @@ export function TaskDetailModal() {
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 space-y-2">
-                      <Textarea
-                        placeholder="Write a comment..."
+                      <MentionInput
                         value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
+                        onChange={setNewComment}
+                        placeholder="Write a comment... Use @ to mention team members"
+                        teamMembers={workspaceMembers}
                         rows={2}
                       />
                       <Button

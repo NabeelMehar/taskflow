@@ -47,11 +47,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/components/ui/use-toast'
 import { getInitials } from '@/lib/utils'
+import { updateNotificationSettings } from '@/lib/notifications'
 
 export default function SettingsPage() {
   const router = useRouter()
   const { theme, setTheme } = useTheme()
-  const { user, setUser } = useAppStore()
+  const { user, setUser, notificationSettings, setNotificationSettings } = useAppStore()
   const supabase = createClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -62,11 +63,32 @@ export default function SettingsPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
 
-  // Notification settings (UI only for now)
-  const [emailNotifications, setEmailNotifications] = useState(true)
-  const [taskAssigned, setTaskAssigned] = useState(true)
-  const [taskComments, setTaskComments] = useState(true)
-  const [dueDateReminders, setDueDateReminders] = useState(true)
+  // Notification settings
+  const [savingSettings, setSavingSettings] = useState(false)
+
+  type NotificationSettingKey = 'email_enabled' | 'task_assigned' | 'mentioned_in_comment' | 'comment_on_task' | 'team_invitation' | 'due_date_reminders'
+
+  // Helper function to update notification settings
+  const handleNotificationSettingChange = async (
+    key: NotificationSettingKey,
+    value: boolean
+  ) => {
+    if (!user?.id) return
+
+    setSavingSettings(true)
+    const updated = await updateNotificationSettings(supabase, user.id, { [key]: value })
+    setSavingSettings(false)
+
+    if (updated) {
+      setNotificationSettings(updated)
+    } else {
+      toast({
+        title: 'Error',
+        description: 'Failed to update notification settings',
+        variant: 'destructive',
+      })
+    }
+  }
 
   const handleUpdateProfile = async () => {
     if (!user) return
@@ -106,6 +128,15 @@ export default function SettingsPage() {
         title: 'Invalid file type',
         description: 'Please upload an image file',
         variant: 'destructive',
+      })
+      return
+    }
+
+    if (file.type === "image/heic") {
+      toast({
+        title: "Unsupported format",
+        description: "Please upload JPG or PNG instead of HEIC",
+        variant: "destructive",
       })
       return
     }
@@ -357,8 +388,9 @@ export default function SettingsPage() {
               </p>
             </div>
             <Switch
-              checked={emailNotifications}
-              onCheckedChange={setEmailNotifications}
+              checked={notificationSettings?.email_enabled ?? true}
+              onCheckedChange={(checked) => handleNotificationSettingChange('email_enabled', checked)}
+              disabled={savingSettings}
             />
           </div>
 
@@ -375,9 +407,23 @@ export default function SettingsPage() {
                 </p>
               </div>
               <Switch
-                checked={taskAssigned}
-                onCheckedChange={setTaskAssigned}
-                disabled={!emailNotifications}
+                checked={notificationSettings?.task_assigned ?? true}
+                onCheckedChange={(checked) => handleNotificationSettingChange('task_assigned', checked)}
+                disabled={savingSettings}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Mentioned in comments</p>
+                <p className="text-xs text-muted-foreground">
+                  When someone @mentions you in a comment
+                </p>
+              </div>
+              <Switch
+                checked={notificationSettings?.mentioned_in_comment ?? true}
+                onCheckedChange={(checked) => handleNotificationSettingChange('mentioned_in_comment', checked)}
+                disabled={savingSettings}
               />
             </div>
 
@@ -389,9 +435,9 @@ export default function SettingsPage() {
                 </p>
               </div>
               <Switch
-                checked={taskComments}
-                onCheckedChange={setTaskComments}
-                disabled={!emailNotifications}
+                checked={notificationSettings?.comment_on_task ?? true}
+                onCheckedChange={(checked) => handleNotificationSettingChange('comment_on_task', checked)}
+                disabled={savingSettings}
               />
             </div>
 
@@ -403,9 +449,9 @@ export default function SettingsPage() {
                 </p>
               </div>
               <Switch
-                checked={dueDateReminders}
-                onCheckedChange={setDueDateReminders}
-                disabled={!emailNotifications}
+                checked={notificationSettings?.due_date_reminders ?? true}
+                onCheckedChange={(checked) => handleNotificationSettingChange('due_date_reminders', checked)}
+                disabled={savingSettings}
               />
             </div>
           </div>
